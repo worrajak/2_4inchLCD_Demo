@@ -19,6 +19,10 @@ struct PriceData {
     float gasohol_95;
     float gasohol_91;
 
+    // Breaking news headlines
+    String news1;
+    String news2;
+
     bool valid;
     unsigned long last_update;
     String error_msg;
@@ -28,6 +32,8 @@ struct PriceData {
         btc_usd = sol_usd = thb_per_usd = 0;
         btc_change_24h = sol_change_24h = 0;
         diesel_b7 = gasohol_95 = gasohol_91 = 0;
+        news1 = "";
+        news2 = "";
         valid = false;
         last_update = 0;
         error_msg = "";
@@ -49,6 +55,7 @@ public:
         if (fetchExchangeRate()) ok = true;
         if (fetchGold()) ok = true;
         if (fetchThaiFuel()) ok = true;
+        fetchNews();  // Best-effort, don't affect ok status
 
         if (ok) {
             data.valid = true;
@@ -163,5 +170,35 @@ public:
         data.error_msg = "Fuel API err:" + String(code);
         http.end();
         return false;
+    }
+
+    // Fetch breaking news via Google News RSS -> rss2json
+    void fetchNews() {
+        HTTPClient http;
+        // Google News RSS search: middle east war / gulf conflict
+        http.begin("https://api.rss2json.com/v1/api.json?rss_url=https%3A%2F%2Fnews.google.com%2Frss%2Fsearch%3Fq%3Dmiddle%2Beast%2Bwar%2BOR%2Bgulf%2Bconflict%26hl%3Den-US%26gl%3DUS%26ceid%3DUS%3Aen");
+        http.setTimeout(10000);
+        int code = http.GET();
+
+        if (code == 200) {
+            String payload = http.getString();
+            // Filter to only parse items[0] and items[1] title
+            JsonDocument filter;
+            filter["items"][0]["title"] = true;
+
+            JsonDocument doc;
+            if (!deserializeJson(doc, payload, DeserializationOption::Filter(filter))) {
+                JsonArray items = doc["items"];
+                if (items.size() > 0) {
+                    const char* t0 = items[0]["title"];
+                    if (t0) data.news1 = String(t0);
+                }
+                if (items.size() > 1) {
+                    const char* t1 = items[1]["title"];
+                    if (t1) data.news2 = String(t1);
+                }
+            }
+        }
+        http.end();
     }
 };

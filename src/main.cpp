@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <TFT_eSPI.h>
+#include <time.h>
 
 TFT_eSPI tft = TFT_eSPI();
 
@@ -71,6 +72,18 @@ void setup() {
     wifiSetup.init();
     wifiSetup.runSetup();
 
+    // Sync NTP (Thailand = UTC+7)
+    configTime(7 * 3600, 0, "pool.ntp.org", "time.nist.gov");
+    Serial.print("Syncing NTP...");
+    struct tm t;
+    int retry = 0;
+    while (!getLocalTime(&t) && retry < 10) {
+        delay(500);
+        Serial.print(".");
+        retry++;
+    }
+    Serial.println(retry < 10 ? " OK" : " Failed");
+
     // Init UI
     ui.init();
     ui.drawLoading();
@@ -123,9 +136,9 @@ void loop() {
         delay(300);  // Debounce
     }
 
-    // Update the "last updated" time periodically
-    if (fetcher.data.valid && (now - ui.last_draw > 10000)) {
-        ui.drawUpdateTime(fetcher.data.last_update);
+    // Update header clock every 30 seconds
+    if (fetcher.data.valid && (now - ui.last_draw > 30000)) {
+        ui.drawHeader("Price Tracker", WiFi.status() == WL_CONNECTED);
         ui.last_draw = now;
     }
 

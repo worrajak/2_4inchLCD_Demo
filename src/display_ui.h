@@ -1,5 +1,6 @@
 #pragma once
 #include <TFT_eSPI.h>
+#include <time.h>
 #include "price_fetcher.h"
 
 extern TFT_eSPI tft;
@@ -18,6 +19,10 @@ extern TFT_eSPI tft;
 #define CLR_VALUE    TFT_WHITE
 #define CLR_DIVIDER  0x4208   // Dark grey
 
+#define CLR_NEWS_BG  0x8000   // Dark red
+#define CLR_NEWS_TXT TFT_YELLOW
+#define NEWS_Y       180       // News area start
+
 struct DisplayUI {
     unsigned long last_draw;
     int anim_frame;
@@ -34,14 +39,21 @@ struct DisplayUI {
         tft.setCursor(10, 4);
         tft.print(title);
 
+        // Thai date+time after title
+        struct tm t;
+        if (getLocalTime(&t)) {
+            char buf[20];
+            snprintf(buf, sizeof(buf), "%02d/%02d %02d:%02d",
+                     t.tm_mday, t.tm_mon + 1, t.tm_hour, t.tm_min);
+            tft.setTextColor(TFT_YELLOW, CLR_HEADER);
+            tft.setTextFont(2);
+            tft.setCursor(170, 4);
+            tft.print(buf);
+        }
+
         // WiFi indicator
         uint16_t wcolor = wifi_ok ? TFT_GREEN : TFT_RED;
         tft.fillCircle(300, 12, 5, wcolor);
-
-        // Time since update
-        tft.setTextFont(1);
-        tft.setTextColor(0xBDF7, CLR_HEADER);
-        tft.setCursor(250, 8);
     }
 
     void drawPriceDashboard(PriceData &d) {
@@ -49,15 +61,15 @@ struct DisplayUI {
         drawHeader("Price Tracker", WiFi.status() == WL_CONNECTED);
 
         int y = 28;
-        int row_h = 36;
+        int row_h = 30;
 
-        // === GOLD ===
+        // === GOLD ===  $3,045.20  42,350 THB/bt
         drawDivider(y);
         y += 2;
-        drawPriceRow(y, "GOLD", CLR_GOLD,
-                     formatPrice(d.gold_usd, "$", 2),
-                     d.gold_thb > 0 ? formatPriceTHB(d.gold_thb) : "---",
-                     0, false);
+        drawCompactRow(y, "GOLD", CLR_GOLD,
+                       formatPrice(d.gold_usd, "$", 2),
+                       d.gold_thb > 0 ? formatPriceTHB(d.gold_thb) : "",
+                       CLR_LABEL);
         y += row_h;
 
         // === FUEL (Diesel, G95, G91) ===
@@ -66,137 +78,143 @@ struct DisplayUI {
         drawFuelRow(y, d);
         y += row_h;
 
-        // === BTC ===
+        // === BTC ===  $87,432  +2.3%
         drawDivider(y);
         y += 2;
-        drawPriceRow(y, "BTC", CLR_BTC,
-                     formatPrice(d.btc_usd, "$", 0),
-                     "",
-                     d.btc_change_24h, true);
+        drawCompactRow(y, "BTC", CLR_BTC,
+                       formatPrice(d.btc_usd, "$", 0),
+                       formatChange(d.btc_change_24h),
+                       d.btc_change_24h >= 0 ? CLR_UP : CLR_DOWN);
         y += row_h;
 
-        // === SOL ===
+        // === SOL ===  $142.50  -1.2%
         drawDivider(y);
         y += 2;
-        drawPriceRow(y, "SOL", CLR_SOL,
-                     formatPrice(d.sol_usd, "$", 2),
-                     "",
-                     d.sol_change_24h, true);
+        drawCompactRow(y, "SOL", CLR_SOL,
+                       formatPrice(d.sol_usd, "$", 2),
+                       formatChange(d.sol_change_24h),
+                       d.sol_change_24h >= 0 ? CLR_UP : CLR_DOWN);
         y += row_h;
 
         // === THB/USD ===
         drawDivider(y);
         y += 2;
-        drawFXRow(y, d.thb_per_usd);
+        drawCompactRow(y, "THB", CLR_FX,
+                       d.thb_per_usd > 0 ? String(d.thb_per_usd, 2) : "---",
+                       "per USD", CLR_LABEL);
 
-        // Update timestamp
-        drawUpdateTime(d.last_update);
+        // Breaking news (static, word-wrapped)
+        drawNews(d.news1, d.news2);
     }
 
-    void drawPriceRow(int y, const char* label, uint16_t label_color,
-                      String price, String sub, float change_pct, bool show_change) {
-        // Label
+    // Draw news as static wrapped text
+    void drawNews(const String &h1, const String &h2) {
+        tft.fillRect(0, NEWS_Y, 320, 240 - NEWS_Y, CLR_NEWS_BG);
+        tft.drawFastHLine(0, NEWS_Y, 320, TFT_RED);
+
+        if (h1.length() == 0) return;
+
+        tft.setTextColor(CLR_NEWS_TXT, CLR_NEWS_BG);
+        tft.setTextFont(1);  // 6x8 font, ~52 chars per line
+
+        int maxChars = 52;
+        int lineY = NEWS_Y + 4;
+        int maxLines = (240 - NEWS_Y - 4) / 11;  // lines that fit
+
+        // Word-wrap helper: prints one String, returns lines used
+        auto printWrapped = [&](const String &text) -> int {
+            int used = 0;
+            String remain = text;
+            while (remain.length() > 0 && used < maxLines) {
+                String line;
+                if ((int)remain.length() <= maxChars) {
+                    line = remain;
+                    remain = "";
+                } else {
+                    int cut = remain.lastIndexOf(' ', maxChars);
+                    if (cut <= 0) cut = maxChars;
+                    line = remain.substring(0, cut);
+                    remain = remain.substring(cut + 1);
+                }
+                tft.setCursor(4, lineY);
+                tft.print(line);
+                lineY += 11;
+                used++;
+                maxLines--;
+            }
+            return used;
+        };
+
+        printWrapped(h1);
+
+        // Print headline 2 if space remains
+        if (maxLines > 0 && h2.length() > 0) {
+            lineY += 2;  // small gap between headlines
+            printWrapped(h2);
+        }
+    }
+
+    // Single-line compact row: LABEL  PRICE  sub_text
+    void drawCompactRow(int y, const char* label, uint16_t label_color,
+                        String price, String sub, uint16_t sub_color) {
+        // Label (Font2, small)
         tft.setTextColor(label_color, CLR_BG);
         tft.setTextFont(2);
-        tft.setCursor(8, y + 2);
+        tft.setCursor(8, y + 6);
         tft.print(label);
 
-        // Price (large)
+        // Price (Font4, large)
         tft.setTextColor(CLR_VALUE, CLR_BG);
         tft.setTextFont(4);
-        tft.setCursor(70, y);
+        tft.setCursor(55, y + 1);
         tft.print(price);
 
-        // Sub text or change percentage
-        if (show_change && change_pct != 0) {
-            uint16_t chg_color = change_pct >= 0 ? CLR_UP : CLR_DOWN;
-            tft.setTextColor(chg_color, CLR_BG);
+        // Sub text (Font2, right side)
+        if (sub.length() > 0) {
+            tft.setTextColor(sub_color, CLR_BG);
             tft.setTextFont(2);
-            int tx = 70;
-            tft.setCursor(tx, y + 24);
-            tft.printf("%s%.1f%%", change_pct >= 0 ? "+" : "", change_pct);
-        } else if (sub.length() > 0) {
-            tft.setTextColor(CLR_LABEL, CLR_BG);
-            tft.setTextFont(2);
-            tft.setCursor(70, y + 24);
+            tft.setCursor(215, y + 6);
             tft.print(sub);
         }
     }
 
-    // Draw Thai fuel prices: Diesel B7 | Gasohol 95 | Gasohol 91
+    // Draw Thai fuel prices: FUEL  B7 29.94  95 35.05  91 32.68
     void drawFuelRow(int y, PriceData &d) {
         tft.setTextColor(CLR_FUEL, CLR_BG);
         tft.setTextFont(2);
-        tft.setCursor(8, y + 2);
+        tft.setCursor(8, y + 6);
         tft.print("FUEL");
 
-        tft.setTextFont(1);
-        tft.setCursor(8, y + 20);
-        tft.setTextColor(CLR_LABEL, CLR_BG);
-        tft.print("PTT B/L");
-
-        // 3 columns: Diesel | G95 | G91
-        int col_x[] = {70, 160, 250};
-        const char* labels[] = {"Diesel", "G-95", "G-91"};
+        // 3 compact columns
+        int col_x[] = {55, 145, 235};
+        const char* labels[] = {"B7", "95", "91"};
         float prices[] = {d.diesel_b7, d.gasohol_95, d.gasohol_91};
 
         for (int i = 0; i < 3; i++) {
             // Label
             tft.setTextColor(CLR_LABEL, CLR_BG);
             tft.setTextFont(1);
-            tft.setCursor(col_x[i], y + 2);
+            tft.setCursor(col_x[i], y + 1);
             tft.print(labels[i]);
-            // Price
+
+            // Price (Font2, drawn twice offset 1px = faux bold)
             tft.setTextColor(CLR_VALUE, CLR_BG);
             tft.setTextFont(2);
-            tft.setCursor(col_x[i], y + 14);
+            char buf[8];
             if (prices[i] > 0) {
-                tft.printf("%.2f", prices[i]);
+                snprintf(buf, sizeof(buf), "%.2f", prices[i]);
             } else {
-                tft.print("---");
+                snprintf(buf, sizeof(buf), "---");
             }
+            tft.setCursor(col_x[i], y + 12);
+            tft.print(buf);
+            tft.setCursor(col_x[i] + 1, y + 12);
+            tft.print(buf);
         }
-    }
-
-    void drawFXRow(int y, float rate) {
-        tft.setTextColor(CLR_FX, CLR_BG);
-        tft.setTextFont(2);
-        tft.setCursor(8, y + 2);
-        tft.print("THB");
-
-        tft.setTextColor(CLR_VALUE, CLR_BG);
-        tft.setTextFont(4);
-        tft.setCursor(70, y);
-        if (rate > 0) {
-            tft.printf("%.2f", rate);
-        } else {
-            tft.print("---");
-        }
-
-        tft.setTextColor(CLR_LABEL, CLR_BG);
-        tft.setTextFont(2);
-        tft.setCursor(200, y + 8);
-        tft.print("per USD");
     }
 
     void drawDivider(int y) {
         tft.drawFastHLine(5, y, 310, CLR_DIVIDER);
-    }
-
-    void drawUpdateTime(unsigned long last_ms) {
-        tft.setTextColor(0x7BEF, CLR_BG);
-        tft.setTextFont(1);
-        tft.setCursor(220, 232);
-        if (last_ms > 0) {
-            int sec = (millis() - last_ms) / 1000;
-            if (sec < 60) {
-                tft.printf("Updated %ds ago", sec);
-            } else {
-                tft.printf("Updated %dm ago", sec / 60);
-            }
-        } else {
-            tft.print("No data yet");
-        }
     }
 
     // Loading/refresh animation
@@ -235,6 +253,13 @@ struct DisplayUI {
         } else {
             snprintf(buf, sizeof(buf), "%s%.*f", prefix, decimals, val);
         }
+        return String(buf);
+    }
+
+    String formatChange(float pct) {
+        if (pct == 0) return "";
+        char buf[12];
+        snprintf(buf, sizeof(buf), "%s%.1f%%", pct >= 0 ? "+" : "", pct);
         return String(buf);
     }
 

@@ -4,13 +4,32 @@ Real-time price dashboard on ESP32 CYD (Cheap Yellow Display) 2.4" ILI9341 with 
 
 ## Features
 
-- **Gold** - XAU/USD spot price + THB per baht-weight
+- **Gold** - XAU/USD spot price + THB per baht-weight (Font4 large)
 - **Thai Fuel Prices (PTT)** - Diesel B7, Gasohol 95, Gasohol 91 (Baht/Litre)
 - **Bitcoin (BTC)** - USD price with 24h change %
 - **Solana (SOL)** - USD price with 24h change %
 - **THB/USD** - Exchange rate
+- **Breaking News** - Middle East / Gulf conflict headlines (auto word-wrap, up to 5 lines)
+- **Thai Clock** - NTP-synced date & time (UTC+7) on header bar
 
 Auto-refresh every 60 seconds. Touch header bar to force refresh.
+
+## Display Layout
+
+```
++--------------------------------------+
+| Price Tracker  24/03 14:35  [wifi]   |  Header + NTP clock
+|--------------------------------------|
+| GOLD   $3,045.20    42,350 THB/bt    |
+| FUEL   B7 29.94  95 35.05  91 32.68 |
+| BTC    $87,432              +2.3%    |
+| SOL    $142.50              -1.2%    |
+| THB    34.25              per USD    |
+|======================================|
+| Iran warns of retaliation after US   |  Breaking news
+| carrier group enters Persian Gulf... |  (word-wrapped)
++--------------------------------------+
+```
 
 ## Hardware
 
@@ -25,6 +44,8 @@ Auto-refresh every 60 seconds. Touch header bar to force refresh.
 | BTC, SOL, Gold (XAUT) | [CoinGecko](https://api.coingecko.com) |
 | THB/USD exchange rate | [open.er-api.com](https://open.er-api.com) |
 | Thai fuel prices (PTT) | [thai-oil-api](https://api.chnwt.dev/thai-oil-api/latest) |
+| Breaking news | [Google News RSS](https://news.google.com) via [rss2json](https://rss2json.com) |
+| Thai time (NTP) | pool.ntp.org, time.nist.gov |
 
 ## WiFi Setup
 
@@ -59,10 +80,10 @@ pio device monitor
 
 ```
 src/
-  main.cpp          - Setup, loop, touch handling
+  main.cpp          - Setup, loop, touch handling, NTP sync
   wifi_setup.h      - WiFi scan, select, on-screen keyboard
-  price_fetcher.h   - HTTP fetch from all APIs
-  display_ui.h      - Dashboard layout and drawing
+  price_fetcher.h   - HTTP fetch from all APIs + news
+  display_ui.h      - Dashboard layout, news display
 platformio.ini      - Build config with TFT_eSPI flags
 ```
 
