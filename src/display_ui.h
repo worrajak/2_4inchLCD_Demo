@@ -32,14 +32,26 @@ struct DisplayUI {
         anim_frame = 0;
     }
 
-    void drawHeader(const char* title, bool wifi_ok) {
+    void drawHeader(const char* title, bool wifi_ok, int page = -1, int totalPages = 0) {
         tft.fillRect(0, 0, 320, 24, CLR_HEADER);
         tft.setTextColor(TFT_WHITE, CLR_HEADER);
         tft.setTextFont(2);
         tft.setCursor(10, 4);
         tft.print(title);
 
-        // Thai date+time after title
+        // Page indicator dots
+        if (totalPages > 1) {
+            int dotX = 138;
+            for (int i = 0; i < totalPages; i++) {
+                if (i == page) {
+                    tft.fillCircle(dotX + i * 14, 12, 4, TFT_WHITE);
+                } else {
+                    tft.drawCircle(dotX + i * 14, 12, 3, 0x6B4D);
+                }
+            }
+        }
+
+        // Date+time
         struct tm t;
         if (getLocalTime(&t)) {
             char buf[20];
@@ -47,21 +59,21 @@ struct DisplayUI {
                      t.tm_mday, t.tm_mon + 1, t.tm_hour, t.tm_min);
             tft.setTextColor(TFT_YELLOW, CLR_HEADER);
             tft.setTextFont(2);
-            tft.setCursor(170, 4);
+            tft.setCursor(195, 4);
             tft.print(buf);
         }
 
         // WiFi indicator
         uint16_t wcolor = wifi_ok ? TFT_GREEN : TFT_RED;
-        tft.fillCircle(300, 12, 5, wcolor);
+        tft.fillCircle(306, 12, 5, wcolor);
     }
 
-    void drawPriceDashboard(PriceData &d) {
+    void drawPriceDashboard(PriceData &d, int page = 0, int totalPages = 2) {
         tft.fillScreen(CLR_BG);
-        drawHeader("Price Tracker", WiFi.status() == WL_CONNECTED);
+        drawHeader("Prices", WiFi.status() == WL_CONNECTED, page, totalPages);
 
-        int y = 28;
-        int row_h = 30;
+        int y = 26;
+        int row_h = 37;
 
         // === GOLD ===  $3,045.20  42,350 THB/bt
         drawDivider(y);
@@ -78,36 +90,22 @@ struct DisplayUI {
         drawFuelRow(y, d);
         y += row_h;
 
-        // === BTC ===  $87,432  +2.3%
+        // === CRYPTO: BTC + SOL on one line ===
         drawDivider(y);
         y += 2;
-        drawCompactRow(y, "BTC", CLR_BTC,
-                       formatPrice(d.btc_usd, "$", 0),
-                       formatChange(d.btc_change_24h),
-                       d.btc_change_24h >= 0 ? CLR_UP : CLR_DOWN);
+        drawCryptoRow(y, d);
         y += row_h;
 
-        // === SOL ===  $142.50  -1.2%
+        // === FX: THB  JPY  CNY per USD ===
         drawDivider(y);
         y += 2;
-        drawCompactRow(y, "SOL", CLR_SOL,
-                       formatPrice(d.sol_usd, "$", 2),
-                       formatChange(d.sol_change_24h),
-                       d.sol_change_24h >= 0 ? CLR_UP : CLR_DOWN);
-        y += row_h;
+        drawFxRow(y, d);
 
-        // === THB/USD ===
-        drawDivider(y);
-        y += 2;
-        drawCompactRow(y, "THB", CLR_FX,
-                       d.thb_per_usd > 0 ? String(d.thb_per_usd, 2) : "---",
-                       "per USD", CLR_LABEL);
-
-        // Breaking news (static, word-wrapped)
+        // Breaking news (2 headlines)
         drawNews(d.news1, d.news2);
     }
 
-    // Draw news as static wrapped text
+    // Draw news as static wrapped text (2 headlines)
     void drawNews(const String &h1, const String &h2) {
         tft.fillRect(0, NEWS_Y, 320, 240 - NEWS_Y, CLR_NEWS_BG);
         tft.drawFastHLine(0, NEWS_Y, 320, TFT_RED);
@@ -119,13 +117,11 @@ struct DisplayUI {
 
         int maxChars = 52;
         int lineY = NEWS_Y + 4;
-        int maxLines = (240 - NEWS_Y - 4) / 11;  // lines that fit
+        int maxLines = (240 - NEWS_Y - 4) / 11;
 
-        // Word-wrap helper: prints one String, returns lines used
-        auto printWrapped = [&](const String &text) -> int {
-            int used = 0;
+        auto printWrapped = [&](const String &text) {
             String remain = text;
-            while (remain.length() > 0 && used < maxLines) {
+            while (remain.length() > 0 && maxLines > 0) {
                 String line;
                 if ((int)remain.length() <= maxChars) {
                     line = remain;
@@ -139,17 +135,14 @@ struct DisplayUI {
                 tft.setCursor(4, lineY);
                 tft.print(line);
                 lineY += 11;
-                used++;
                 maxLines--;
             }
-            return used;
         };
 
         printWrapped(h1);
 
-        // Print headline 2 if space remains
         if (maxLines > 0 && h2.length() > 0) {
-            lineY += 2;  // small gap between headlines
+            lineY += 2;
             printWrapped(h2);
         }
     }
@@ -182,7 +175,7 @@ struct DisplayUI {
     void drawFuelRow(int y, PriceData &d) {
         tft.setTextColor(CLR_FUEL, CLR_BG);
         tft.setTextFont(2);
-        tft.setCursor(8, y + 6);
+        tft.setCursor(8, y + 8);
         tft.print("FUEL");
 
         // 3 compact columns
@@ -191,24 +184,103 @@ struct DisplayUI {
         float prices[] = {d.diesel_b7, d.gasohol_95, d.gasohol_91};
 
         for (int i = 0; i < 3; i++) {
-            // Label
+            // Label (Font2)
             tft.setTextColor(CLR_LABEL, CLR_BG);
-            tft.setTextFont(1);
+            tft.setTextFont(2);
             tft.setCursor(col_x[i], y + 1);
             tft.print(labels[i]);
 
-            // Price (Font2, drawn twice offset 1px = faux bold)
+            // Price (Font4, larger)
             tft.setTextColor(CLR_VALUE, CLR_BG);
-            tft.setTextFont(2);
+            tft.setTextFont(4);
             char buf[8];
             if (prices[i] > 0) {
                 snprintf(buf, sizeof(buf), "%.2f", prices[i]);
             } else {
                 snprintf(buf, sizeof(buf), "---");
             }
-            tft.setCursor(col_x[i], y + 12);
+            tft.setCursor(col_x[i], y + 14);
             tft.print(buf);
-            tft.setCursor(col_x[i] + 1, y + 12);
+        }
+    }
+
+    // Draw crypto row: BTC + SOL side by side (Font4 prices)
+    void drawCryptoRow(int y, PriceData &d) {
+        // BTC (left half)
+        tft.setTextColor(CLR_BTC, CLR_BG);
+        tft.setTextFont(2);
+        tft.setCursor(8, y + 1);
+        tft.print("BTC");
+
+        // BTC change %
+        if (d.btc_change_24h != 0) {
+            tft.setTextColor(d.btc_change_24h >= 0 ? CLR_UP : CLR_DOWN, CLR_BG);
+            tft.setTextFont(2);
+            tft.setCursor(50, y + 1);
+            tft.print(formatChange(d.btc_change_24h));
+        }
+
+        tft.setTextColor(CLR_VALUE, CLR_BG);
+        tft.setTextFont(4);
+        tft.setCursor(8, y + 14);
+        tft.print(formatPrice(d.btc_usd, "$", 0));
+
+        // SOL (right half)
+        tft.setTextColor(CLR_SOL, CLR_BG);
+        tft.setTextFont(2);
+        tft.setCursor(170, y + 1);
+        tft.print("SOL");
+
+        // SOL change %
+        if (d.sol_change_24h != 0) {
+            tft.setTextColor(d.sol_change_24h >= 0 ? CLR_UP : CLR_DOWN, CLR_BG);
+            tft.setTextFont(2);
+            tft.setCursor(210, y + 1);
+            tft.print(formatChange(d.sol_change_24h));
+        }
+
+        tft.setTextColor(CLR_VALUE, CLR_BG);
+        tft.setTextFont(4);
+        tft.setCursor(170, y + 14);
+        tft.print(formatPrice(d.sol_usd, "$", 2));
+    }
+
+    // Draw FX row: THB/USD  CNY/THB  JPY/THB (Font4 values)
+    void drawFxRow(int y, PriceData &d) {
+        tft.setTextColor(CLR_FX, CLR_BG);
+        tft.setTextFont(2);
+        tft.setCursor(8, y + 8);
+        tft.print("FX");
+
+        // Calculate cross rates
+        float cny_thb = (d.thb_per_usd > 0 && d.cny_per_usd > 0)
+                         ? d.thb_per_usd / d.cny_per_usd : 0;
+        float jpy_thb = (d.thb_per_usd > 0 && d.jpy_per_usd > 0)
+                         ? d.thb_per_usd / d.jpy_per_usd : 0;
+
+        // 3 columns: THB/USD, CNY/THB, JPY/THB
+        int col_x[] = {55, 145, 235};
+        const char* labels[] = {"THB/$", "CNY/B", "JPY/B"};
+        float rates[] = {d.thb_per_usd, cny_thb, jpy_thb};
+        int decimals[] = {2, 2, 3};
+
+        for (int i = 0; i < 3; i++) {
+            // Label (Font2)
+            tft.setTextColor(CLR_LABEL, CLR_BG);
+            tft.setTextFont(2);
+            tft.setCursor(col_x[i], y + 1);
+            tft.print(labels[i]);
+
+            // Rate value (Font4)
+            tft.setTextColor(CLR_VALUE, CLR_BG);
+            tft.setTextFont(4);
+            char buf[10];
+            if (rates[i] > 0) {
+                snprintf(buf, sizeof(buf), "%.*f", decimals[i], rates[i]);
+            } else {
+                snprintf(buf, sizeof(buf), "---");
+            }
+            tft.setCursor(col_x[i], y + 14);
             tft.print(buf);
         }
     }
@@ -218,9 +290,11 @@ struct DisplayUI {
     }
 
     // Loading/refresh animation
-    void drawLoading() {
+    void drawLoading(int page = 0, int totalPages = 2) {
         tft.fillScreen(CLR_BG);
-        drawHeader("Price Tracker", WiFi.status() == WL_CONNECTED);
+        const char* titles[] = {"Prices", "Weather"};
+        drawHeader(page < 2 ? titles[page] : "Loading",
+                   WiFi.status() == WL_CONNECTED, page, totalPages);
         tft.setTextColor(TFT_CYAN, CLR_BG);
         tft.setTextFont(4);
         tft.setCursor(60, 100);

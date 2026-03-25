@@ -8,13 +8,16 @@ TFT_eSPI tft = TFT_eSPI();
 #include "wifi_setup.h"
 #include "price_fetcher.h"
 #include "display_ui.h"
+#include "weather_fetcher.h"
+#include "weather_ui.h"
 
 // === Configuration ===
 #define BACKLIGHT_PIN 27
-#define UPDATE_INTERVAL_MS 60000  // Refresh prices every 60 seconds
+#define PRICE_INTERVAL_MS   60000   // Refresh prices every 60s
+#define WEATHER_INTERVAL_MS 300000  // Refresh weather every 5min
+#define TOTAL_PAGES 2
 
 // === Touch calibration (raw mapping, rotation 1) ===
-// Calibrated from 2026-02-12_ESP32-Cheap-Yellow-Display-main
 #define RAW_X_MIN 304
 #define RAW_X_MAX 3928
 #define RAW_Y_MIN 243
@@ -24,13 +27,19 @@ TFT_eSPI tft = TFT_eSPI();
 WiFiSetup wifiSetup;
 PriceFetcher fetcher;
 DisplayUI ui;
+WeatherFetcher wxFetcher;
+WeatherUI wxUI;
 
-unsigned long lastFetchTime = 0;
-bool firstFetch = true;
+int currentPage = 0;           // 0=Prices, 1=Weather
+unsigned long lastPriceFetch = 0;
+unsigned long lastWeatherFetch = 0;
+bool priceReady = false;
+bool weatherReady = false;
+bool needRedraw = true;
 
-// Touch helper using TFT_eSPI raw touch (matches reference project)
+// Touch helper
 bool getTouch(uint16_t &sx, uint16_t &sy) {
-    if (tft.getTouchRawZ() < 300) return false;  // Pressure threshold
+    if (tft.getTouchRawZ() < 300) return false;
     uint16_t rx, ry;
     tft.getTouchRaw(&rx, &ry);
     int x = map(rx, RAW_X_MIN, RAW_X_MAX, 0, 319);
@@ -40,28 +49,51 @@ bool getTouch(uint16_t &sx, uint16_t &sy) {
     return true;
 }
 
+void drawCurrentPage() {
+    bool wifiOk = WiFi.status() == WL_CONNECTED;
+
+    if (currentPage == 0) {
+        if (priceReady) {
+            ui.drawPriceDashboard(fetcher.data, 0, TOTAL_PAGES);
+        } else {
+            ui.drawLoading(0, TOTAL_PAGES);
+        }
+    } else {
+        // Draw header from DisplayUI (shared style)
+        tft.fillScreen(TFT_BLACK);
+        ui.drawHeader("Weather", wifiOk, 1, TOTAL_PAGES);
+        if (weatherReady) {
+            wxUI.drawWeatherPage(wxFetcher.data);
+        } else {
+            wxUI.drawLoading();
+        }
+    }
+    needRedraw = false;
+}
+
 void setup() {
     Serial.begin(115200);
     Serial.println("CYD Price Tracker starting...");
 
-    // Backlight ON
     pinMode(BACKLIGHT_PIN, OUTPUT);
     digitalWrite(BACKLIGHT_PIN, HIGH);
 
-    // Init display
     tft.init();
-    tft.setRotation(1);  // Landscape 320x240
+    tft.setRotation(1);
     tft.fillScreen(TFT_BLACK);
 
     // Splash screen
     tft.setTextColor(TFT_CYAN, TFT_BLACK);
     tft.setTextFont(4);
-    tft.setCursor(40, 60);
+    tft.setCursor(30, 50);
     tft.println("Price Tracker");
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
     tft.setTextFont(2);
-    tft.setCursor(50, 110);
+    tft.setCursor(30, 100);
     tft.println("Gold | Oil | Crypto | FX");
+    tft.setCursor(30, 125);
+    tft.setTextColor(TFT_GREEN, TFT_BLACK);
+    tft.println("Weather | AQI | Earthquake");
     tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
     tft.setTextFont(1);
     tft.setCursor(100, 200);
@@ -72,7 +104,7 @@ void setup() {
     wifiSetup.init();
     wifiSetup.runSetup();
 
-    // Sync NTP (Thailand = UTC+7)
+    // NTP sync (UTC+7 Thailand)
     configTime(7 * 3600, 0, "pool.ntp.org", "time.nist.gov");
     Serial.print("Syncing NTP...");
     struct tm t;
@@ -84,62 +116,92 @@ void setup() {
     }
     Serial.println(retry < 10 ? " OK" : " Failed");
 
-    // Init UI
+    // Init modules
     ui.init();
-    ui.drawLoading();
+    wxFetcher.init();
+    ui.drawLoading(0, TOTAL_PAGES);
 }
 
 void loop() {
     unsigned long now = millis();
 
-    // Fetch prices on interval
-    if (firstFetch || (now - lastFetchTime >= UPDATE_INTERVAL_MS)) {
-        Serial.println("Fetching prices...");
-
+    // === Fetch price data on interval ===
+    if (!priceReady || (now - lastPriceFetch >= PRICE_INTERVAL_MS)) {
         if (WiFi.status() != WL_CONNECTED) {
-            Serial.println("WiFi disconnected, reconnecting...");
             wifiSetup.connectWiFi(10);
         }
-
         if (WiFi.status() == WL_CONNECTED) {
-            bool ok = fetcher.fetchAll();
-            if (ok) {
-                Serial.println("Prices updated successfully");
-                Serial.printf("  BTC: $%.0f  SOL: $%.2f\n", fetcher.data.btc_usd, fetcher.data.sol_usd);
-                Serial.printf("  Gold: $%.2f  THB/USD: %.2f\n", fetcher.data.gold_usd, fetcher.data.thb_per_usd);
-                Serial.printf("  Diesel: %.2f  G95: %.2f  G91: %.2f\n", fetcher.data.diesel_b7, fetcher.data.gasohol_95, fetcher.data.gasohol_91);
-                ui.drawPriceDashboard(fetcher.data);
+            Serial.println("Fetching prices...");
+            if (fetcher.fetchAll()) {
+                Serial.println("Prices OK");
+                priceReady = true;
+                if (currentPage == 0) needRedraw = true;
             } else {
-                Serial.println("Fetch failed: " + fetcher.data.error_msg);
-                if (!firstFetch) {
-                    ui.drawError(fetcher.data.error_msg.c_str());
-                }
+                Serial.println("Price fetch failed: " + fetcher.data.error_msg);
             }
-        } else {
-            ui.drawError("WiFi disconnected");
         }
-
-        lastFetchTime = now;
-        firstFetch = false;
+        lastPriceFetch = now;
     }
 
-    // Touch: tap anywhere to force refresh
+    // === Fetch weather data on interval ===
+    if (!weatherReady || (now - lastWeatherFetch >= WEATHER_INTERVAL_MS)) {
+        if (WiFi.status() == WL_CONNECTED) {
+            Serial.println("Fetching weather...");
+            if (wxFetcher.fetchAll()) {
+                Serial.println("Weather OK");
+                weatherReady = true;
+                if (currentPage == 1) needRedraw = true;
+            } else {
+                Serial.println("Weather fetch failed: " + wxFetcher.data.error_msg);
+            }
+        }
+        lastWeatherFetch = now;
+    }
+
+    // === Redraw if needed ===
+    if (needRedraw) {
+        drawCurrentPage();
+    }
+
+    // === Touch input ===
     uint16_t tx, ty;
     if (getTouch(tx, ty)) {
-        // Top area: force refresh
-        if (ty < 30) {
-            ui.drawLoading();
-            fetcher.fetchAll();
-            ui.drawPriceDashboard(fetcher.data);
-            lastFetchTime = millis();
+        if (ty < 26) {
+            // Header area: tap left half = switch page, right half = refresh
+            if (tx < 170) {
+                // Switch page
+                currentPage = (currentPage + 1) % TOTAL_PAGES;
+                needRedraw = true;
+                Serial.printf("Switched to page %d\n", currentPage);
+            } else {
+                // Force refresh current page
+                Serial.println("Force refresh");
+                if (currentPage == 0) {
+                    ui.drawLoading(0, TOTAL_PAGES);
+                    fetcher.fetchAll();
+                    priceReady = fetcher.data.valid;
+                    lastPriceFetch = millis();
+                } else {
+                    tft.fillScreen(TFT_BLACK);
+                    ui.drawHeader("Weather", true, 1, TOTAL_PAGES);
+                    wxUI.drawLoading();
+                    wxFetcher.fetchAll();
+                    weatherReady = wxFetcher.data.valid;
+                    lastWeatherFetch = millis();
+                }
+                needRedraw = true;
+            }
         }
         delay(300);  // Debounce
     }
 
-    // Update header clock every 30 seconds
-    if (fetcher.data.valid && (now - ui.last_draw > 30000)) {
-        ui.drawHeader("Price Tracker", WiFi.status() == WL_CONNECTED);
-        ui.last_draw = now;
+    // === Update header clock every 30 seconds ===
+    static unsigned long lastClockUpdate = 0;
+    if (now - lastClockUpdate > 30000) {
+        bool wifiOk = WiFi.status() == WL_CONNECTED;
+        const char* titles[] = {"Prices", "Weather"};
+        ui.drawHeader(titles[currentPage], wifiOk, currentPage, TOTAL_PAGES);
+        lastClockUpdate = now;
     }
 
     delay(50);

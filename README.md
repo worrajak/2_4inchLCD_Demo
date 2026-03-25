@@ -1,35 +1,79 @@
-# CYD Price Tracker
+# CYD Price Tracker & Weather Dashboard
 
-Real-time price dashboard on ESP32 CYD (Cheap Yellow Display) 2.4" ILI9341 with XPT2046 touch screen.
+Real-time price dashboard + weather/earthquake monitor on ESP32 CYD (Cheap Yellow Display) 2.4" ILI9341 with XPT2046 touch screen.
 
-## Features
+**2-page swipeable interface** - tap header to switch pages.
+
+## Page 1: Price Tracker
 
 - **Gold** - XAU/USD spot price + THB per baht-weight (Font4 large)
 - **Thai Fuel Prices (PTT)** - Diesel B7, Gasohol 95, Gasohol 91 (Baht/Litre)
 - **Bitcoin (BTC)** - USD price with 24h change %
 - **Solana (SOL)** - USD price with 24h change %
-- **THB/USD** - Exchange rate
-- **Breaking News** - Middle East / Gulf conflict headlines (auto word-wrap, up to 5 lines)
+- **FX Rates** - THB/USD, CNY/THB, JPY/THB
+- **Breaking News** - Middle East / Gulf conflict headlines (auto word-wrap)
 - **Thai Clock** - NTP-synced date & time (UTC+7) on header bar
 
-Auto-refresh every 60 seconds. Touch header bar to force refresh.
+Auto-refresh every 60 seconds.
+
+## Page 2: Weather & Earthquake
+
+Real-time weather for 4 cities in a 2x2 grid layout:
+
+| City | Color | Data |
+|------|-------|------|
+| Chiang Mai | Gold | Temp, Humidity, AQI, Rain forecast |
+| Chiang Rai | Green | Temp, Humidity, AQI, Rain forecast |
+| Bangkok | Cyan | Temp, Humidity, AQI, Rain forecast |
+| Osaka | Magenta | Temp, Humidity, AQI, Rain forecast |
+
+- **Temperature** - Large Font4 hero number (°C)
+- **Humidity** - Percentage with blue tint
+- **AQI** - Color-coded badge (Green/Yellow/Orange/Red/Purple)
+- **Rain Forecast** - Max probability in next 12 hours + text (Rain!/Maybe/Clear)
+- **Earthquake Alert** - Filters M4.0+ quakes by impact radius to show only those affecting the 4 cities. Displays magnitude badge, distance, location, time ago, and depth.
+
+Auto-refresh every 5 minutes.
 
 ## Display Layout
 
 ```
+Page 1 - Prices:
 +--------------------------------------+
-| Price Tracker  24/03 14:35  [wifi]   |  Header + NTP clock
+| Prices  (o)(.)  25/03 14:35  [wifi]  |  Header + page dots + clock
 |--------------------------------------|
 | GOLD   $3,045.20    42,350 THB/bt    |
 | FUEL   B7 29.94  95 35.05  91 32.68 |
-| BTC    $87,432              +2.3%    |
-| SOL    $142.50              -1.2%    |
-| THB    34.25              per USD    |
+| BTC +2.3%  $87,432  SOL -1.2% $142  |
+| FX  THB/$ 34.25  CNY/B 4.82 JPY/B   |
 |======================================|
-| Iran warns of retaliation after US   |  Breaking news
-| carrier group enters Persian Gulf... |  (word-wrapped)
+| Iran warns of retaliation after...   |  Breaking news
++--------------------------------------+
+
+Page 2 - Weather:
++--------------------------------------+
+| Weather (.)( o)  25/03 14:35 [wifi]  |  Header + page dots
+|--------------------------------------|
+| Chiang Mai   75% | Chiang Rai   80% |
+| 32.5 oC          | 30.2 oC          |
+| [AQI:89] R:40%   | [AQI:65] R:55%   |
+|-------------------+------------------|
+| Bangkok      60% | Osaka        50% |
+| 35.1 oC          | 22.3 oC          |
+| [AQI:120] R:20%  | [AQI:45] R:10%   |
+|======================================|
+| EARTHQUAKE  [M5.2]  200km>CM        |  Filtered by impact
+| 85km NW of Mandalay, Myanmar        |  radius to 4 cities
+| 2h ago | Depth: 10km                |
 +--------------------------------------+
 ```
+
+## Touch Controls
+
+| Action | Area |
+|--------|------|
+| Switch page | Tap left side of header (x < 170) |
+| Force refresh | Tap right side of header (x >= 170) |
 
 ## Hardware
 
@@ -37,23 +81,27 @@ Auto-refresh every 60 seconds. Touch header bar to force refresh.
 - Display: 320x240 landscape, HSPI
 - Touch: Raw Z pressure + raw XY mapping (calibrated)
 
-## APIs Used (all free, no API key)
+## APIs Used (all free, no API key needed)
 
 | Data | API |
 |------|-----|
 | BTC, SOL, Gold (XAUT) | [CoinGecko](https://api.coingecko.com) |
-| THB/USD exchange rate | [open.er-api.com](https://open.er-api.com) |
+| THB/USD, JPY, CNY exchange rate | [open.er-api.com](https://open.er-api.com) |
 | Thai fuel prices (PTT) | [thai-oil-api](https://api.chnwt.dev/thai-oil-api/latest) |
 | Breaking news | [Google News RSS](https://news.google.com) via [rss2json](https://rss2json.com) |
+| Weather (temp, humidity, rain) | [Open-Meteo](https://api.open-meteo.com) |
+| Air Quality Index (AQI) | [Open-Meteo Air Quality](https://air-quality-api.open-meteo.com) |
+| Earthquake data | [USGS Earthquake API](https://earthquake.usgs.gov) |
 | Thai time (NTP) | pool.ntp.org, time.nist.gov |
 
 ## WiFi Setup
 
-On first boot (or if saved credentials fail), the device:
+On first boot (or if saved credentials fail):
 1. Scans nearby WiFi networks
-2. Shows a list on screen - tap to select
-3. On-screen keyboard for password entry
-4. Saves credentials to NVS flash for next boot
+2. Shows list with signal strength + **EAP** badge for enterprise networks
+3. For WPA2-Enterprise: on-screen keyboard for username, then password
+4. For WPA2-Personal: on-screen keyboard for password (or "No Password")
+5. Saves credentials to NVS flash for next boot
 
 ## Build
 
@@ -80,12 +128,29 @@ pio device monitor
 
 ```
 src/
-  main.cpp          - Setup, loop, touch handling, NTP sync
-  wifi_setup.h      - WiFi scan, select, on-screen keyboard
-  price_fetcher.h   - HTTP fetch from all APIs + news
-  display_ui.h      - Dashboard layout, news display
-platformio.ini      - Build config with TFT_eSPI flags
+  main.cpp            - Setup, loop, page switching, touch, NTP
+  wifi_setup.h        - WiFi scan, WPA2-Enterprise, on-screen keyboard
+  price_fetcher.h     - HTTP fetch: gold, crypto, fuel, FX, news
+  display_ui.h        - Price dashboard layout, shared header
+  weather_fetcher.h   - HTTP fetch: weather, AQI, earthquake
+  weather_ui.h        - Weather page layout, 2x2 grid, quake section
+platformio.ini        - Build config with TFT_eSPI flags
 ```
+
+## Earthquake Filtering Logic
+
+Only shows earthquakes that could be **felt** at one of the 4 monitored cities:
+
+| Magnitude | Impact Radius |
+|-----------|--------------|
+| M4.0-4.4 | 80 km |
+| M4.5-4.9 | 150 km |
+| M5.0-5.9 | 300 km |
+| M6.0-6.9 | 800 km |
+| M7.0-7.9 | 1,500 km |
+| M8.0+ | 3,000 km |
+
+Distance calculated using Haversine formula. Most impactful quake (highest magnitude/distance score) is displayed.
 
 ## License
 

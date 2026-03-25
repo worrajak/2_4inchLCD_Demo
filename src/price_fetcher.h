@@ -9,6 +9,8 @@ struct PriceData {
     float btc_usd;       // Bitcoin USD
     float sol_usd;       // Solana USD
     float thb_per_usd;   // THB/USD exchange rate
+    float jpy_per_usd;   // JPY/USD exchange rate
+    float cny_per_usd;   // CNY/USD exchange rate
 
     // 24h change percentages
     float btc_change_24h;
@@ -29,7 +31,7 @@ struct PriceData {
 
     void reset() {
         gold_usd = gold_thb = 0;
-        btc_usd = sol_usd = thb_per_usd = 0;
+        btc_usd = sol_usd = thb_per_usd = jpy_per_usd = cny_per_usd = 0;
         btc_change_24h = sol_change_24h = 0;
         diesel_b7 = gasohol_95 = gasohol_91 = 0;
         news1 = "";
@@ -106,6 +108,8 @@ public:
             JsonDocument doc;
             if (!deserializeJson(doc, payload)) {
                 data.thb_per_usd = doc["rates"]["THB"] | 0.0f;
+                data.jpy_per_usd = doc["rates"]["JPY"] | 0.0f;
+                data.cny_per_usd = doc["rates"]["CNY"] | 0.0f;
                 http.end();
                 return true;
             }

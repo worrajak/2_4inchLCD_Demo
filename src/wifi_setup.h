@@ -2,6 +2,7 @@
 #include <WiFi.h>
 #include <TFT_eSPI.h>
 #include <Preferences.h>
+#include <esp_wpa2.h>
 
 // Touch calibration for CYD 2.4" (rotation 1)
 #define TOUCH_X_MIN 304
@@ -16,13 +17,15 @@ static const char* kb_rows[] = {
     "1234567890",
     "qwertyuiop",
     "asdfghjkl",
-    "zxcvbnm.-_"
+    "zxcvbnm.-_@"
 };
 static const int kb_row_count = 4;
 
 struct WiFiSetup {
     String ssid;
+    String username;
     String password;
+    bool is_enterprise;
     bool connected;
     Preferences prefs;
 
@@ -37,6 +40,7 @@ struct WiFiSetup {
 
     void init() {
         connected = false;
+        is_enterprise = false;
         shift_on = false;
         kb_y_start = 116;
         key_w = 30;
@@ -63,6 +67,8 @@ struct WiFiSetup {
         prefs.begin("wifi", true);
         ssid = prefs.getString("ssid", "");
         password = prefs.getString("pass", "");
+        username = prefs.getString("user", "");
+        is_enterprise = prefs.getBool("ent", false);
         prefs.end();
         return ssid.length() > 0;
     }
@@ -72,6 +78,8 @@ struct WiFiSetup {
         prefs.begin("wifi", false);
         prefs.putString("ssid", ssid);
         prefs.putString("pass", password);
+        prefs.putString("user", username);
+        prefs.putBool("ent", is_enterprise);
         prefs.end();
     }
 
@@ -90,8 +98,24 @@ struct WiFiSetup {
         tft.setTextColor(TFT_WHITE, TFT_BLACK);
         tft.println(ssid);
 
+        if (is_enterprise) {
+            tft.setTextColor(TFT_MAGENTA, TFT_BLACK);
+            tft.setCursor(10, 28);
+            tft.printf("EAP user: %s", username.c_str());
+        }
+
         WiFi.mode(WIFI_STA);
-        WiFi.begin(ssid.c_str(), password.c_str());
+        WiFi.disconnect(true);
+
+        if (is_enterprise) {
+            esp_wifi_sta_wpa2_ent_set_identity((uint8_t *)username.c_str(), username.length());
+            esp_wifi_sta_wpa2_ent_set_username((uint8_t *)username.c_str(), username.length());
+            esp_wifi_sta_wpa2_ent_set_password((uint8_t *)password.c_str(), password.length());
+            esp_wifi_sta_wpa2_ent_enable();
+            WiFi.begin(ssid.c_str());
+        } else {
+            WiFi.begin(ssid.c_str(), password.c_str());
+        }
 
         int dots = 0;
         unsigned long start = millis();
@@ -125,6 +149,10 @@ struct WiFiSetup {
         tft.setCursor(10, 5);
         tft.println("Scanning WiFi...");
 
+        WiFi.mode(WIFI_STA);
+        WiFi.disconnect();
+        delay(100);
+
         int n = WiFi.scanNetworks();
         if (n == 0) {
             tft.setTextColor(TFT_RED, TFT_BLACK);
@@ -144,11 +172,22 @@ struct WiFiSetup {
 
         for (int i = 0; i < maxShow; i++) {
             int y = 26 + i * 26;
+            bool ent = (WiFi.encryptionType(i) == WIFI_AUTH_WPA2_ENTERPRISE);
+
             tft.setTextColor(TFT_WHITE, TFT_BLACK);
             tft.setCursor(10, y + 4);
             String name = WiFi.SSID(i);
-            if (name.length() > 25) name = name.substring(0, 25) + "..";
+            if (name.length() > 22) name = name.substring(0, 22) + "..";
             tft.print(name);
+
+            // Enterprise badge
+            if (ent) {
+                tft.setTextColor(TFT_MAGENTA, TFT_BLACK);
+                tft.setTextFont(1);
+                tft.setCursor(tft.getCursorX() + 3, y + 8);
+                tft.print("EAP");
+                tft.setTextFont(2);
+            }
 
             // Signal strength indicator
             int rssi = WiFi.RSSI(i);
@@ -170,6 +209,7 @@ struct WiFiSetup {
                     int y = 26 + i * 26;
                     if (ty >= y && ty < y + 26) {
                         ssid = WiFi.SSID(i);
+                        is_enterprise = (WiFi.encryptionType(i) == WIFI_AUTH_WPA2_ENTERPRISE);
                         WiFi.scanDelete();
                         return i;
                     }
@@ -358,6 +398,45 @@ struct WiFiSetup {
         }
     }
 
+    // Username entry screen (for WPA2-Enterprise)
+    String getUsernameInput() {
+        tft.fillScreen(TFT_BLACK);
+        tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+        tft.setTextFont(2);
+        tft.setCursor(10, 10);
+        tft.print("WiFi: ");
+        tft.setTextColor(TFT_WHITE, TFT_BLACK);
+        tft.print(ssid);
+        tft.setTextColor(TFT_MAGENTA, TFT_BLACK);
+        tft.setTextFont(1);
+        tft.print(" [EAP]");
+        tft.setTextFont(2);
+
+        tft.setTextColor(TFT_CYAN, TFT_BLACK);
+        tft.setCursor(10, 40);
+        tft.println("Enter Username:");
+
+        // "@" hint for email-style usernames
+        tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+        tft.setTextFont(1);
+        tft.setCursor(10, 60);
+        tft.print("e.g. user@domain.com");
+        tft.setTextFont(2);
+
+        input_text = "";
+        editing_password = false;
+        drawInputField();
+        drawKeyboard();
+
+        while (true) {
+            int result = handleKeyboardTouch();
+            if (result == 1) {
+                return input_text;
+            }
+            delay(30);
+        }
+    }
+
     // Full WiFi setup flow
     bool runSetup() {
         // First try auto-connect
@@ -367,6 +446,13 @@ struct WiFiSetup {
         while (true) {
             int sel = scanAndShow();
             if (sel < 0) continue;
+
+            // If Enterprise, ask for username first
+            if (is_enterprise) {
+                username = getUsernameInput();
+            } else {
+                username = "";
+            }
 
             password = getPasswordInput();
             if (connectWiFi(15)) {
