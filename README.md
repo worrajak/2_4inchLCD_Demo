@@ -10,6 +10,7 @@ Real-time price dashboard + weather/earthquake monitor + Islamic prayer times on
 - **Thai Fuel Prices (PTT)** - Diesel, Gasohol 95, Gasohol 91 (Baht/Litre)
 - **Bitcoin (BTC)** - USD price with 24h change %
 - **Solana (SOL)** - USD price with 24h change %
+- **Tron (TRX)** - USD price with 24h change %
 - **FX Rates** - THB/USD, CNY/THB, JPY/THB
 - **Breaking News** - Middle East / Gulf conflict headlines (auto word-wrap)
 - **Thai Clock** - NTP-synced date & time (UTC+7) on header bar

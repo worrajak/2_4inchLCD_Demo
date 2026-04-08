@@ -8,6 +8,7 @@ struct PriceData {
     float gold_thb;      // Gold in THB per baht-weight (15.244g)
     float btc_usd;       // Bitcoin USD
     float sol_usd;       // Solana USD
+    float trx_usd;       // Tron USD
     float thb_per_usd;   // THB/USD exchange rate
     float jpy_per_usd;   // JPY/USD exchange rate
     float cny_per_usd;   // CNY/USD exchange rate
@@ -15,6 +16,7 @@ struct PriceData {
     // 24h change percentages
     float btc_change_24h;
     float sol_change_24h;
+    float trx_change_24h;
 
     // Thai fuel prices (PTT, Baht/Litre)
     float diesel_b7;
@@ -31,8 +33,8 @@ struct PriceData {
 
     void reset() {
         gold_usd = gold_thb = 0;
-        btc_usd = sol_usd = thb_per_usd = jpy_per_usd = cny_per_usd = 0;
-        btc_change_24h = sol_change_24h = 0;
+        btc_usd = sol_usd = trx_usd = thb_per_usd = jpy_per_usd = cny_per_usd = 0;
+        btc_change_24h = sol_change_24h = trx_change_24h = 0;
         diesel_b7 = gasohol_95 = gasohol_91 = 0;
         news1 = "";
         news2 = "";
@@ -74,7 +76,7 @@ public:
     // Fetch BTC and SOL from CoinGecko
     bool fetchCrypto() {
         HTTPClient http;
-        http.begin("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,solana&vs_currencies=usd&include_24hr_change=true");
+        http.begin("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,solana,tron&vs_currencies=usd&include_24hr_change=true");
         http.setTimeout(10000);
         int code = http.GET();
 
@@ -86,6 +88,8 @@ public:
                 data.btc_change_24h = doc["bitcoin"]["usd_24h_change"] | 0.0f;
                 data.sol_usd = doc["solana"]["usd"] | 0.0f;
                 data.sol_change_24h = doc["solana"]["usd_24h_change"] | 0.0f;
+                data.trx_usd = doc["tron"]["usd"] | 0.0f;
+                data.trx_change_24h = doc["tron"]["usd_24h_change"] | 0.0f;
                 http.end();
                 return true;
             }

@@ -12,6 +12,7 @@ extern TFT_eSPI tft;
 #define CLR_FUEL     0x2D8F   // Teal/petrol
 #define CLR_BTC      0xFDA0   // Orange
 #define CLR_SOL      0x9F1F   // Purple/violet
+#define CLR_TRX      0xF800   // Tron red
 #define CLR_FX       0x07FF   // Cyan
 #define CLR_UP       TFT_GREEN
 #define CLR_DOWN     TFT_RED
@@ -204,45 +205,36 @@ struct DisplayUI {
         }
     }
 
-    // Draw crypto row: BTC + SOL side by side (Font4 prices)
+    // Draw crypto row: BTC + SOL + TRX in 3 compact columns
     void drawCryptoRow(int y, PriceData &d) {
-        // BTC (left half)
-        tft.setTextColor(CLR_BTC, CLR_BG);
-        tft.setTextFont(2);
-        tft.setCursor(8, y + 1);
-        tft.print("BTC");
+        const int col_x[3]   = {8, 112, 216};
+        const char* names[3] = {"BTC", "SOL", "TRX"};
+        const uint16_t cols[3] = {CLR_BTC, CLR_SOL, CLR_TRX};
+        const float prices[3]  = {d.btc_usd, d.sol_usd, d.trx_usd};
+        const float chgs[3]    = {d.btc_change_24h, d.sol_change_24h, d.trx_change_24h};
+        const int decs[3]      = {0, 2, 4};
 
-        // BTC change %
-        if (d.btc_change_24h != 0) {
-            tft.setTextColor(d.btc_change_24h >= 0 ? CLR_UP : CLR_DOWN, CLR_BG);
+        for (int i = 0; i < 3; i++) {
+            // Symbol label
+            tft.setTextColor(cols[i], CLR_BG);
             tft.setTextFont(2);
-            tft.setCursor(50, y + 1);
-            tft.print(formatChange(d.btc_change_24h));
+            tft.setCursor(col_x[i], y + 1);
+            tft.print(names[i]);
+
+            // 24h change %
+            if (chgs[i] != 0) {
+                tft.setTextColor(chgs[i] >= 0 ? CLR_UP : CLR_DOWN, CLR_BG);
+                tft.setTextFont(2);
+                tft.setCursor(col_x[i] + 38, y + 1);
+                tft.print(formatChange(chgs[i]));
+            }
+
+            // Price (Font4)
+            tft.setTextColor(CLR_VALUE, CLR_BG);
+            tft.setTextFont(4);
+            tft.setCursor(col_x[i], y + 14);
+            tft.print(formatPrice(prices[i], "$", decs[i]));
         }
-
-        tft.setTextColor(CLR_VALUE, CLR_BG);
-        tft.setTextFont(4);
-        tft.setCursor(8, y + 14);
-        tft.print(formatPrice(d.btc_usd, "$", 0));
-
-        // SOL (right half)
-        tft.setTextColor(CLR_SOL, CLR_BG);
-        tft.setTextFont(2);
-        tft.setCursor(170, y + 1);
-        tft.print("SOL");
-
-        // SOL change %
-        if (d.sol_change_24h != 0) {
-            tft.setTextColor(d.sol_change_24h >= 0 ? CLR_UP : CLR_DOWN, CLR_BG);
-            tft.setTextFont(2);
-            tft.setCursor(210, y + 1);
-            tft.print(formatChange(d.sol_change_24h));
-        }
-
-        tft.setTextColor(CLR_VALUE, CLR_BG);
-        tft.setTextFont(4);
-        tft.setCursor(170, y + 14);
-        tft.print(formatPrice(d.sol_usd, "$", 2));
     }
 
     // Draw FX row: THB/USD  CNY/THB  JPY/THB (Font4 values)
