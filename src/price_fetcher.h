@@ -154,14 +154,16 @@ public:
             String payload = http.getString();
             // Use filter to reduce memory usage (full JSON is very large)
             JsonDocument filter;
-            filter["response"]["stations"]["ptt"]["diesel_b7"] = true;
+            // NOTE: API keys are mislabeled — "premium_diesel" key actually
+            // contains regular ดีเซล (~50฿), while "diesel_b7" key holds ดีเซลพรีเมียม (~70฿)
+            filter["response"]["stations"]["ptt"]["premium_diesel"] = true;
             filter["response"]["stations"]["ptt"]["gasohol_95"] = true;
             filter["response"]["stations"]["ptt"]["gasohol_91"] = true;
 
             JsonDocument doc;
             if (!deserializeJson(doc, payload, DeserializationOption::Filter(filter))) {
                 JsonObject ptt = doc["response"]["stations"]["ptt"];
-                const char* d = ptt["diesel_b7"]["price"];
+                const char* d = ptt["premium_diesel"]["price"];
                 const char* g95 = ptt["gasohol_95"]["price"];
                 const char* g91 = ptt["gasohol_91"]["price"];
                 if (d) data.diesel_b7 = atof(d);

@@ -12,6 +12,14 @@
 
 extern TFT_eSPI tft;
 
+// Capture last WiFi disconnect reason for diagnosing EAP failures
+static volatile uint8_t g_wifi_last_reason = 0;
+static void wifi_evt_handler(WiFiEvent_t e, WiFiEventInfo_t info) {
+    if (e == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+        g_wifi_last_reason = info.wifi_sta_disconnected.reason;
+    }
+}
+
 // On-screen keyboard layout
 static const char* kb_rows[] = {
     "1234567890",
@@ -106,12 +114,21 @@ struct WiFiSetup {
 
         WiFi.mode(WIFI_STA);
         WiFi.disconnect(true);
+        WiFi.onEvent(wifi_evt_handler);
+        g_wifi_last_reason = 0;
 
         if (is_enterprise) {
+            // PEAP/MSCHAPv2 (most common). Use username as both outer identity and inner.
+            // No CA cert -> server not validated (acceptable for IoT device).
+            esp_wifi_sta_wpa2_ent_clear_ca_cert();
+            esp_wifi_sta_wpa2_ent_clear_cert_key();
             esp_wifi_sta_wpa2_ent_set_identity((uint8_t *)username.c_str(), username.length());
             esp_wifi_sta_wpa2_ent_set_username((uint8_t *)username.c_str(), username.length());
             esp_wifi_sta_wpa2_ent_set_password((uint8_t *)password.c_str(), password.length());
+            esp_wifi_sta_wpa2_ent_set_ttls_phase2_method(ESP_EAP_TTLS_PHASE2_MSCHAPV2);
             esp_wifi_sta_wpa2_ent_enable();
+            // Enterprise auth often takes longer
+            if (timeout_sec < 25) timeout_sec = 25;
             WiFi.begin(ssid.c_str());
         } else {
             WiFi.begin(ssid.c_str(), password.c_str());
@@ -125,7 +142,11 @@ struct WiFiSetup {
                 tft.setTextColor(TFT_RED, TFT_BLACK);
                 tft.setCursor(10, 70);
                 tft.println("Connection failed!");
-                delay(2000);
+                tft.setCursor(10, 90);
+                tft.printf("status=%d reason=%u", WiFi.status(), g_wifi_last_reason);
+                // Common reasons: 15=4WAY_HANDSHAKE_TIMEOUT, 204=HANDSHAKE_TIMEOUT,
+                // 202=AUTH_FAIL (wrong user/pass), 205=GROUP_KEY_UPDATE_TIMEOUT
+                delay(4000);
                 return false;
             }
             tft.print(".");

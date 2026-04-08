@@ -37,6 +37,11 @@ bool priceReady = false;
 bool weatherReady = false;
 bool needRedraw = true;
 
+// Backlight brightness (PWM 0-255)
+const uint8_t brightnessLevels[] = {40, 100, 180, 255};
+const int NUM_BRIGHTNESS = 4;
+int brightnessIdx = 3;  // Start at max
+
 // Touch helper
 bool getTouch(uint16_t &sx, uint16_t &sy) {
     if (tft.getTouchRawZ() < 300) return false;
@@ -75,8 +80,8 @@ void setup() {
     Serial.begin(115200);
     Serial.println("CYD Price Tracker starting...");
 
-    pinMode(BACKLIGHT_PIN, OUTPUT);
-    digitalWrite(BACKLIGHT_PIN, HIGH);
+    // Backlight PWM
+    analogWrite(BACKLIGHT_PIN, brightnessLevels[brightnessIdx]);
 
     tft.init();
     tft.setRotation(1);
@@ -167,8 +172,24 @@ void loop() {
     uint16_t tx, ty;
     if (getTouch(tx, ty)) {
         if (ty < 26) {
-            // Header area: tap left half = switch page, right half = refresh
-            if (tx < 170) {
+            if (tx > 285) {
+                // WiFi dot area: cycle brightness
+                brightnessIdx = (brightnessIdx + 1) % NUM_BRIGHTNESS;
+                analogWrite(BACKLIGHT_PIN, brightnessLevels[brightnessIdx]);
+                Serial.printf("Brightness: %d/4 (%d)\n",
+                    brightnessIdx + 1, brightnessLevels[brightnessIdx]);
+
+                // Brief on-screen feedback
+                tft.fillRect(110, 100, 100, 30, 0x4208);
+                tft.setTextColor(TFT_WHITE, 0x4208);
+                tft.setTextFont(2);
+                tft.setCursor(118, 106);
+                char bBuf[16];
+                snprintf(bBuf, sizeof(bBuf), "BL: %d/%d", brightnessIdx + 1, NUM_BRIGHTNESS);
+                tft.print(bBuf);
+                delay(600);
+                needRedraw = true;
+            } else if (tx < 170) {
                 // Switch page
                 currentPage = (currentPage + 1) % TOTAL_PAGES;
                 needRedraw = true;

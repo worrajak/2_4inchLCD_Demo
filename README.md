@@ -7,7 +7,7 @@ Real-time price dashboard + weather/earthquake monitor on ESP32 CYD (Cheap Yello
 ## Page 1: Price Tracker
 
 - **Gold** - XAU/USD spot price + THB per baht-weight (Font4 large)
-- **Thai Fuel Prices (PTT)** - Diesel B7, Gasohol 95, Gasohol 91 (Baht/Litre)
+- **Thai Fuel Prices (PTT)** - Diesel, Gasohol 95, Gasohol 91 (Baht/Litre)
 - **Bitcoin (BTC)** - USD price with 24h change %
 - **Solana (SOL)** - USD price with 24h change %
 - **FX Rates** - THB/USD, CNY/THB, JPY/THB
@@ -43,7 +43,7 @@ Page 1 - Prices:
 | Prices  (o)(.)  25/03 14:35  [wifi]  |  Header + page dots + clock
 |--------------------------------------|
 | GOLD   $3,045.20    42,350 THB/bt    |
-| FUEL   B7 29.94  95 35.05  91 32.68 |
+| FUEL   DSL 50.54 95 43.95 91 43.58  |
 | BTC +2.3%  $87,432  SOL -1.2% $142  |
 | FX  THB/$ 34.25  CNY/B 4.82 JPY/B   |
 |======================================|
@@ -100,6 +100,8 @@ On first boot (or if saved credentials fail):
 1. Scans nearby WiFi networks
 2. Shows list with signal strength + **EAP** badge for enterprise networks
 3. For WPA2-Enterprise: on-screen keyboard for username, then password
+   - Uses PEAP / MSCHAPv2 (compatible with eduroam, AD-based corporate WiFi)
+   - Shows disconnect reason code on failure for diagnostics
 4. For WPA2-Personal: on-screen keyboard for password (or "No Password")
 5. Saves credentials to NVS flash for next boot
 

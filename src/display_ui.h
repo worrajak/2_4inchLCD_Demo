@@ -180,7 +180,7 @@ struct DisplayUI {
 
         // 3 compact columns
         int col_x[] = {55, 145, 235};
-        const char* labels[] = {"B7", "95", "91"};
+        const char* labels[] = {"DSL", "95", "91"};  // diesel_b7 = ดีเซลธรรมดาที่ขายทุกปั๊ม
         float prices[] = {d.diesel_b7, d.gasohol_95, d.gasohol_91};
 
         for (int i = 0; i < 3; i++) {
