@@ -10,12 +10,15 @@ TFT_eSPI tft = TFT_eSPI();
 #include "display_ui.h"
 #include "weather_fetcher.h"
 #include "weather_ui.h"
+#include "prayer_fetcher.h"
+#include "prayer_ui.h"
 
 // === Configuration ===
 #define BACKLIGHT_PIN 27
-#define PRICE_INTERVAL_MS   60000   // Refresh prices every 60s
-#define WEATHER_INTERVAL_MS 300000  // Refresh weather every 5min
-#define TOTAL_PAGES 2
+#define PRICE_INTERVAL_MS   60000     // Refresh prices every 60s
+#define WEATHER_INTERVAL_MS 300000    // Refresh weather every 5min
+#define PRAYER_INTERVAL_MS  21600000  // Refresh prayer times every 6 hours
+#define TOTAL_PAGES 3
 
 // === Touch calibration (raw mapping, rotation 1) ===
 #define RAW_X_MIN 304
@@ -29,12 +32,16 @@ PriceFetcher fetcher;
 DisplayUI ui;
 WeatherFetcher wxFetcher;
 WeatherUI wxUI;
+PrayerFetcher prayerFetcher;
+PrayerUI prayerUI;
 
-int currentPage = 0;           // 0=Prices, 1=Weather
+int currentPage = 0;           // 0=Prices, 1=Weather, 2=Prayer
 unsigned long lastPriceFetch = 0;
 unsigned long lastWeatherFetch = 0;
+unsigned long lastPrayerFetch = 0;
 bool priceReady = false;
 bool weatherReady = false;
+bool prayerReady = false;
 bool needRedraw = true;
 
 // Backlight brightness (PWM 0-255)
@@ -63,14 +70,23 @@ void drawCurrentPage() {
         } else {
             ui.drawLoading(0, TOTAL_PAGES);
         }
-    } else {
-        // Draw header from DisplayUI (shared style)
+    } else if (currentPage == 1) {
         tft.fillScreen(TFT_BLACK);
         ui.drawHeader("Weather", wifiOk, 1, TOTAL_PAGES);
         if (weatherReady) {
             wxUI.drawWeatherPage(wxFetcher.data);
         } else {
             wxUI.drawLoading();
+        }
+    } else {
+        tft.fillScreen(TFT_BLACK);
+        ui.drawHeader("Prayer", wifiOk, 2, TOTAL_PAGES);
+        if (prayerReady) {
+            prayerUI.drawPrayerPage(prayerFetcher.data);
+        } else if (prayerFetcher.data.error_msg.length() > 0) {
+            prayerUI.drawError(prayerFetcher.data.error_msg);
+        } else {
+            prayerUI.drawLoading();
         }
     }
     needRedraw = false;
@@ -124,6 +140,7 @@ void setup() {
     // Init modules
     ui.init();
     wxFetcher.init();
+    prayerFetcher.init();
     ui.drawLoading(0, TOTAL_PAGES);
 }
 
@@ -163,6 +180,21 @@ void loop() {
         lastWeatherFetch = now;
     }
 
+    // === Fetch prayer times (daily, or 6h fallback) ===
+    if (prayerFetcher.needsFetch() || (now - lastPrayerFetch >= PRAYER_INTERVAL_MS)) {
+        if (WiFi.status() == WL_CONNECTED) {
+            Serial.println("Fetching prayer times...");
+            if (prayerFetcher.fetch()) {
+                Serial.println("Prayer OK");
+                prayerReady = true;
+                if (currentPage == 2) needRedraw = true;
+            } else {
+                Serial.println("Prayer fetch failed: " + prayerFetcher.data.error_msg);
+            }
+        }
+        lastPrayerFetch = now;
+    }
+
     // === Redraw if needed ===
     if (needRedraw) {
         drawCurrentPage();
@@ -195,20 +227,32 @@ void loop() {
                 needRedraw = true;
                 Serial.printf("Switched to page %d\n", currentPage);
             } else {
-                // Force refresh current page
-                Serial.println("Force refresh");
+                // Header right tap: refresh OR (on prayer page) cycle city
                 if (currentPage == 0) {
+                    Serial.println("Force refresh prices");
                     ui.drawLoading(0, TOTAL_PAGES);
                     fetcher.fetchAll();
                     priceReady = fetcher.data.valid;
                     lastPriceFetch = millis();
-                } else {
+                } else if (currentPage == 1) {
+                    Serial.println("Force refresh weather");
                     tft.fillScreen(TFT_BLACK);
                     ui.drawHeader("Weather", true, 1, TOTAL_PAGES);
                     wxUI.drawLoading();
                     wxFetcher.fetchAll();
                     weatherReady = wxFetcher.data.valid;
                     lastWeatherFetch = millis();
+                } else {
+                    // Prayer page: cycle city
+                    prayerFetcher.cycleCity();
+                    prayerReady = false;
+                    Serial.printf("Prayer city -> %s\n",
+                        prayerFetcher.currentCity().name);
+                    tft.fillScreen(TFT_BLACK);
+                    ui.drawHeader("Prayer", true, 2, TOTAL_PAGES);
+                    prayerUI.drawLoading();
+                    if (prayerFetcher.fetch()) prayerReady = true;
+                    lastPrayerFetch = millis();
                 }
                 needRedraw = true;
             }
@@ -220,7 +264,7 @@ void loop() {
     static unsigned long lastClockUpdate = 0;
     if (now - lastClockUpdate > 30000) {
         bool wifiOk = WiFi.status() == WL_CONNECTED;
-        const char* titles[] = {"Prices", "Weather"};
+        const char* titles[] = {"Prices", "Weather", "Prayer"};
         ui.drawHeader(titles[currentPage], wifiOk, currentPage, TOTAL_PAGES);
         lastClockUpdate = now;
     }

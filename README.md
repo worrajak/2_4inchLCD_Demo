@@ -1,8 +1,8 @@
 # CYD Price Tracker & Weather Dashboard
 
-Real-time price dashboard + weather/earthquake monitor on ESP32 CYD (Cheap Yellow Display) 2.4" ILI9341 with XPT2046 touch screen.
+Real-time price dashboard + weather/earthquake monitor + Islamic prayer times on ESP32 CYD (Cheap Yellow Display) 2.4" ILI9341 with XPT2046 touch screen.
 
-**2-page swipeable interface** - tap header to switch pages.
+**3-page swipeable interface** - tap header to switch pages.
 
 ## Page 1: Price Tracker
 
@@ -34,6 +34,18 @@ Real-time weather for 4 cities in a 2x2 grid layout:
 - **Earthquake Alert** - Filters M4.0+ quakes by impact radius to show only those affecting the 4 cities. Displays magnitude badge, distance, location, time ago, and depth.
 
 Auto-refresh every 5 minutes.
+
+## Page 3: Islamic Prayer Times
+
+Daily salah schedule for one of 4 Thai cities (Chiang Mai, Chiang Rai, Bangkok, Songkhla):
+
+- **5 prayer times** - Fajr, Dhuhr, Asr, Maghrib, Isha (Font4 large)
+- **Next prayer** highlighted in green based on current local time
+- **Hijri date** - day, month, year AH
+- **Sunrise / Sunset** times at the bottom
+- **City selector** - tap right side of header to cycle through 4 cities (saved to NVS)
+
+Auto-refresh once per day (or when city changes). Uses [Aladhan API](https://aladhan.com/prayer-times-api) (method 2 = ISNA).
 
 ## Display Layout
 
@@ -73,7 +85,8 @@ Page 2 - Weather:
 | Action | Area |
 |--------|------|
 | Switch page | Tap left side of header (x < 170) |
-| Force refresh | Tap right side of header (x >= 170) |
+| Force refresh / Cycle city (Prayer page) | Tap middle-right of header (170 <= x < 285) |
+| Cycle backlight brightness | Tap WiFi dot area (x > 285) |
 
 ## Hardware
 
@@ -92,6 +105,7 @@ Page 2 - Weather:
 | Weather (temp, humidity, rain) | [Open-Meteo](https://api.open-meteo.com) |
 | Air Quality Index (AQI) | [Open-Meteo Air Quality](https://air-quality-api.open-meteo.com) |
 | Earthquake data | [USGS Earthquake API](https://earthquake.usgs.gov) |
+| Islamic prayer times + Hijri date | [Aladhan API](https://api.aladhan.com) |
 | Thai time (NTP) | pool.ntp.org, time.nist.gov |
 
 ## WiFi Setup
@@ -136,6 +150,8 @@ src/
   display_ui.h        - Price dashboard layout, shared header
   weather_fetcher.h   - HTTP fetch: weather, AQI, earthquake
   weather_ui.h        - Weather page layout, 2x2 grid, quake section
+  prayer_fetcher.h    - HTTP fetch: Islamic prayer times + Hijri date (Aladhan)
+  prayer_ui.h         - Prayer page layout with next-prayer highlight
 platformio.ini        - Build config with TFT_eSPI flags
 ```
 
